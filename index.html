@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Mysic - Reproductor Offline</title>
+
+    <!-- Meta-tags -->
+    <!-- Corregido: sin ./ -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#09090b">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎵</text></svg>">
+    
+    <!-- 1. CARGA LOCAL DE LIBRERÍAS -->
+    <!-- Corregido: Rutas directas sin ./ para compatibilidad Android Assets -->
+    <script src="tailwindcss.js"></script>
+    
+    <!-- Configuración de Tailwind -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Ajuste para zonas seguras en móviles modernos (notch, barra inferior) */
+        body { padding-bottom: env(safe-area-inset-bottom); }
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+        .mb-safe { margin-bottom: env(safe-area-inset-bottom); }
+        .bottom-safe { bottom: env(safe-area-inset-bottom); }
+    </style>
+</head>
+<body class="bg-zinc-950 text-white overflow-hidden select-none">
+
+    <!-- 1. FONDO: Blobs + Ruido -->
+    <div class="fixed inset-0 z-0 overflow-hidden pointer-events-none">
+        <div class="color-blob w-[600px] h-[600px] bg-purple-900/40 rounded-full -top-20 -left-20"></div>
+        <div class="color-blob w-[500px] h-[500px] bg-blue-900/30 rounded-full bottom-0 right-0" style="animation-delay: -5s;"></div>
+        <div class="bg-noise"></div>
+    </div>
+
+    <audio id="audio-player" class="hidden" preload="metadata"></audio>
+    
+    <!-- MODAL: Importar Música -->
+    <div id="add-music-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm transition-opacity">
+        <div class="glass-panel w-full max-w-md rounded-3xl p-6 relative animate-fade-in">
+            <button id="close-modal-btn" class="absolute top-4 right-4 p-2 rounded-full hover:bg-white/10 transition">
+                <svg class="h-6 w-6 text-white/70" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            <h2 class="text-2xl font-bold mb-2 text-white tracking-tight">Importar Música</h2>
+            <p class="text-white/50 text-sm mb-8">Selecciona archivos MP3, FLAC o M4A.</p>
+            
+            <button id="upload-local-btn" class="w-full bg-white text-black font-bold py-4 px-5 rounded-2xl flex items-center justify-center space-x-3 mb-4 transition-transform active:scale-95 shadow-lg shadow-white/5">
+                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                <span>Elegir Archivos</span>
+            </button>
+            <input type="file" id="file-input" accept="audio/*" multiple class="hidden">
+            <p id="modal-status" class="text-center text-purple-300 mt-4 h-5 text-xs font-medium animate-pulse"></p>
+        </div>
+    </div>
+
+    <!-- NOTIFICACIÓN -->
+    <div id="global-notification" class="fixed top-4 left-4 right-4 md:left-auto md:right-4 md:w-80 z-[70] glass-panel rounded-2xl p-4 flex items-center space-x-3 transform translate-y-[-150%] transition-transform duration-500 shadow-2xl border border-white/10">
+        <div class="w-2 h-2 bg-green-400 rounded-full animate-pulse shadow-[0_0_10px_rgba(74,222,128,0.5)]"></div>
+        <div>
+            <h4 class="font-bold text-sm text-white" id="notification-title">Info</h4>
+            <p class="text-xs text-white/70" id="notification-message">...</p>
+        </div>
+    </div>
+
+    <!-- CONTENEDOR PRINCIPAL -->
+    <div id="app-container" class="relative h-screen w-screen flex flex-col md:flex-row z-10">
+
+        <!-- SIDEBAR (Escritorio) -->
+        <nav id="sidebar" class="hidden md:flex md:flex-col md:w-72 h-full p-6 flex-shrink-0 border-r border-white/5 bg-black/20 backdrop-blur-xl">
+             <div class="text-white text-3xl font-black tracking-tighter flex items-center space-x-2 mb-10 text-transparent bg-clip-text bg-gradient-to-r from-white to-white/60">
+                <span>Mysic</span>
+             </div>
+            <ul class="space-y-2">
+                <li>
+                    <a href="#" id="btn-sidebar-home" class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all group">
+                        <svg class="h-6 w-6 text-white/50 group-hover:text-white transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1V9a1 1 0 011-1h2a1 1 0 011 1v10a1 1 0 001 1h3m-6-10l2 2" /></svg>
+                        <span class="font-medium text-white/80 group-hover:text-white">Inicio</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#" id="btn-sidebar-lib" class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all group">
+                        <svg class="h-6 w-6 text-white/50 group-hover:text-white transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" /></svg>
+                        <span class="font-medium text-white/80 group-hover:text-white">Biblioteca</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#" id="btn-sidebar-radios" class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all group">
+                        <svg class="h-6 w-6 text-white/50 group-hover:text-white transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.636 18.364a9 9 0 010-12.728m12.728 0a9 9 0 010 12.728m-9.9-2.829a5 5 0 010-7.07m7.072 0a5 5 0 010 7.07M13 12a1 1 0 11-2 0 1 1 0 012 0z" /></svg>
+                        <span class="font-medium text-white/80 group-hover:text-white">Radios</span>
+                    </a>
+                </li>
+            </ul>
+        </nav>
+
+        <!-- CONTENIDO PRINCIPAL -->
+        <div id="main-content" class="flex-1 h-full overflow-y-auto relative scroll-smooth no-scrollbar">
+            
+            <!-- Header -->
+            <header class="sticky top-0 z-30 px-6 py-4 flex justify-between items-center bg-gradient-to-b from-zinc-950/90 to-transparent backdrop-blur-[1px]">
+                <div class="flex flex-col md:hidden">
+                    <span class="text-2xl font-black tracking-tighter text-white">Mysic</span>
+                    <span class="text-[10px] text-white/40 font-bold tracking-[0.2em] uppercase">Local Player</span>
+                </div>
+                <div class="hidden md:block"></div>
+                <button id="global-search-btn" class="glass-panel p-3 rounded-full text-white/80 hover:text-white transition-colors active:scale-95">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                </button>
+            </header>
+
+            <!-- Contenido con padding inferior extra para evitar el player -->
+            <div class="pb-56 px-4 md:px-10 pt-4">
+
+                <!-- VISTA: INICIO -->
+                <div id="view-home" class="animate-fade-in">
+                    <div class="mb-8">
+                        <h2 class="text-white/90 font-bold text-2xl mb-1 flex items-center">Bienvenido</h2>
+                        <p class="text-white/40 text-sm">Tu música, sin interrupciones.</p>
+                    </div>
+
+                    <div class="mb-8">
+                        <h3 class="text-white/80 font-bold text-lg mb-4">Agregado Recientemente</h3>
+                        <div id="home-recent" class="flex overflow-x-auto pb-8 space-x-0 scrollbar-hide">
+                            <div id="home-recent-empty" class="glass-panel w-full p-8 rounded-3xl flex flex-col items-center justify-center text-center border-dashed border-2 border-white/10">
+                                <p class="text-white/50 text-sm mb-2">Tu biblioteca está vacía</p>
+                                <p class="text-white/30 text-xs">Importa canciones para empezar</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VISTA: BIBLIOTECA -->
+                <div id="view-library" class="hidden animate-fade-in">
+                    
+                    <!-- ENCABEZADO DE BIBLIOTECA CON BOTÓN DE IMPORTAR -->
+                    <div class="flex justify-between items-center mb-6 px-1">
+                        <h1 id="library-title" class="text-3xl font-black text-white tracking-tight">Biblioteca</h1>
+                        
+                        <!-- Botón Restaurado (Estilo Glass) -->
+                        <button id="add-music-btn" class="glass-panel px-4 py-2 rounded-full text-xs font-bold text-white/90 border border-white/10 hover:bg-white/10 active:scale-95 transition-all flex items-center gap-2 shadow-lg shadow-purple-900/20">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                            IMPORTAR
+                        </button>
+                    </div>
+
+                    <div class="flex items-center space-x-2 mb-8 overflow-x-auto pb-2 scrollbar-hide sticky top-20 z-20 py-2">
+                        <button id="filter-albums" class="px-6 py-2.5 rounded-full text-sm font-bold transition-all bg-white text-black shadow-lg shadow-white/5 active:scale-95">Álbumes</button>
+                        <button id="filter-artists" class="px-6 py-2.5 rounded-full text-sm font-medium transition-all bg-white/5 text-white/70 hover:bg-white/10 border border-white/5 active:scale-95">Artistas</button>
+                        <button id="filter-songs" class="px-6 py-2.5 rounded-full text-sm font-medium transition-all bg-white/5 text-white/70 hover:bg-white/10 border border-white/5 active:scale-95">Canciones</button>
+                        <button id="clear-filter-btn" class="hidden ml-auto text-red-300 bg-red-500/10 px-4 py-2 rounded-full text-xs border border-red-500/20 font-bold">BORRAR</button>
+                    </div>
+
+                    <div id="library-content" class="grid gap-3 pb-4"></div>
+                </div>
+                
+                <!-- VISTA: RADIOS -->
+                <div id="view-radios" class="hidden animate-fade-in">
+                    <h1 class="text-3xl font-black text-white mb-6 tracking-tight">En Vivo</h1>
+                    <div id="featured-radio-container" class="mb-8 transform transition-all hover:scale-[1.01]"></div>
+                    <h3 class="text-white/60 text-sm font-bold uppercase tracking-widest mb-4 ml-1">Estaciones</h3>
+                    <div id="radios-list" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"></div>
+                </div>
+
+                <!-- VISTA: BÚSQUEDA -->
+                <div id="view-search" class="hidden animate-fade-in min-h-[80vh]">
+                    <div class="flex items-center space-x-4 mb-8 sticky top-4 z-20">
+                        <button id="back-from-search" class="p-3 glass-panel rounded-full hover:bg-white/10"><svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg></button>
+                        <div class="flex-1 glass-panel rounded-2xl flex items-center px-4 py-3">
+                            <svg class="w-5 h-5 text-white/30 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                            <input type="search" id="search-input" placeholder="Buscar canciones, artistas..." class="w-full bg-transparent border-none text-lg text-white placeholder-white/30 focus:outline-none focus:ring-0">
+                        </div>
+                    </div>
+                    <div id="search-results" class="space-y-3"></div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- BARRA DE NAVEGACIÓN FLOTANTE (Móvil) -->
+        <nav id="tab-bar" class="fixed bottom-4 left-6 right-6 h-[64px] glass-panel rounded-full flex justify-around items-center md:hidden z-50 px-2 shadow-2xl shadow-black/50 backdrop-blur-2xl border border-white/10 mb-safe">
+            <button id="btn-tab-home" class="p-3 text-white/90 transition-transform active:scale-90 relative group">
+                <div class="absolute inset-0 bg-white/10 rounded-full scale-0 group-hover:scale-100 transition-transform"></div>
+                <svg class="w-6 h-6 relative z-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1V9a1 1 0 011-1h2a1 1 0 011 1v10a1 1 0 001 1h3m-6-10l2 2" /></svg>
+            </button>
+            <button id="btn-tab-lib" class="p-3 text-white/50 hover:text-white transition-transform active:scale-90">
+                <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+            </button>
+            <button id="btn-tab-radios" class="p-3 text-white/50 hover:text-white transition-transform active:scale-90">
+                <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.636 18.364a9 9 0 010-12.728m12.728 0a9 9 0 010 12.728m-9.9-2.829a5 5 0 010-7.07m7.072 0a5 5 0 010 7.07M13 12a1 1 0 11-2 0 1 1 0 012 0z" /></svg>
+            </button>
+        </nav>
+        
+        
+        <!-- MINI PLAYER FLOTANTE (VERSIÓN USUARIO) -->
+        <div id="now-playing-bar" class="fixed bottom-[8rem] md:bottom-6 left-6 right-6 md:left-auto md:right-1 md:w-1 h-[72px] glass-panel rounded-2xl flex items-center justify-between px-4 pr-4 z-4 cursor-pointer transition-transform duration-5 translate-y-[20%] border border-white/10 shadow-2xl shadow-black/20 mb-safe">
+            <div class="flex items-center space-x-3 overflow-hidden flex-1 h-full py-2 pl-1">
+                <img id="player-art" src="" class="h-full aspect-square rounded-xl bg-black/50 object-cover shadow-lg border border-white/5">
+                <div class="overflow-hidden flex-1 pr-2 flex flex-col justify-center">
+                    <h4 id="player-title" class="font-bold text-sm text-white truncate leading-tight">Sin Reproducción</h4>
+                    <p id="player-artist" class="text-xs text-white/60 truncate mt-0.5">Mysic Player</p>
+                </div>
+            </div>
+            
+            <button id="play-pause-btn" class="w-10 h-10 bg-white text-black rounded-full flex items-center justify-center shadow-lg shadow-white/10 active:scale-10 transition-all duration-150 ease-out" onclick="event.stopPropagation()">
+                <svg id="icon-play" class="w-5 h-5 ml-0.5" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" /></svg>
+                <svg id="icon-pause" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+            </button>
+        </div>
+
+    </div>
+
+        
+    <!-- FULL PLAYER OVERLAY -->
+    <div id="full-player-view" class="fixed inset-0 z-[100] translate-y-full flex flex-col bg-zinc-950 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]">
+        
+        <!-- Fondo Dinámico -->
+        <div id="player-bg-gradient" class="absolute inset-0 opacity-60 z-0 transition-colors duration-1000 bg-gradient-to-b from-purple-900/50 via-zinc-950 to-zinc-950"></div>
+        <div class="absolute inset-0 bg-noise opacity-10 z-0"></div>
+        
+        <!-- Contenido Player -->
+        <div class="relative z-10 flex flex-col h-full p-6 pt-12 pb-safe">
+            
+            <!-- Header Player -->
+            <div class="flex justify-between items-center mb-4">
+                <button id="close-player-btn" class="text-white/70 hover:text-white p-3 rounded-full hover:bg-white/10 transition"><svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg></button>
+                <div class="w-12 h-1.5 bg-white/10 rounded-full"></div>
+                <div class="w-12"></div>
+            </div>
+
+            <div class="flex-1 flex flex-col justify-center items-center max-w-md mx-auto w-full">
+                
+                <!-- Carátula Grande -->
+                <div class="relative w-full aspect-square mb-12 px-4">
+                    <img id="player-full-art" src="" class="w-full h-full rounded-[2.5rem] shadow-[0_25px_60px_-10px_rgba(0,0,0,0.6)] object-cover border border-white/10 block mx-auto">
+                </div>
+                
+                <!-- Info Track -->
+                <div class="w-full text-left px-4 mb-8">
+                    <h2 id="player-full-title" class="text-3xl font-black text-white leading-tight mb-2 line-clamp-1 tracking-tight">Título</h2>
+                    <p id="player-full-artist" class="text-lg text-white/60 font-medium line-clamp-1">Artista</p>
+                </div>
+
+                <!-- Barra de Progreso -->
+                <div class="w-full px-4 mb-10" id="progress-container">
+                    <div id="progress-bar-container" class="w-full h-2 bg-white/10 rounded-full cursor-pointer relative overflow-hidden group">
+                        <div id="progress-bar" class="h-full bg-white rounded-full w-0 relative transition-all duration-100 after:content-[''] after:absolute after:right-0 after:top-1/2 after:-translate-y-1/2 after:w-4 after:h-4 after:bg-white after:rounded-full after:shadow-lg after:scale-0 group-hover:after:scale-100 after:transition-transform"></div>
+                    </div>
+                    <div class="flex justify-between text-xs text-white/40 font-bold mt-3 font-mono tracking-wider">
+                        <span id="current-time">0:00</span>
+                        <span id="duration">0:00</span>
+                    </div>
+                </div>
+
+                <!-- Controles Principales -->
+                <div class="flex items-center justify-between w-full px-2 mb-8">
+                    <button id="player-prev-btn" class="text-white/70 hover:text-white p-5 active:scale-90 transition"><svg class="w-9 h-9" fill="currentColor" viewBox="0 0 24 24"><path d="M11 17l-5-5 5-5v10zm7 0l-5-5 5-5v10z"/></svg></button>
+                    
+                    <button id="player-full-play-pause-btn" class="w-20 h-20 bg-white text-black rounded-full flex items-center justify-center shadow-[0_0_40px_rgba(255,255,255,0.2)] hover:scale-105 active:scale-95 transition-all">
+                        <svg id="icon-full-play" class="w-9 h-9 ml-1" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" /></svg>
+                        <svg id="icon-full-pause" class="w-9 h-9 hidden" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+                    </button>
+                    
+                    <button id="player-next-btn" class="text-white/70 hover:text-white p-5 active:scale-90 transition"><svg class="w-9 h-9" fill="currentColor" viewBox="0 0 24 24"><path d="M13 7l5 5-5 5V7zM6 7l5 5-5 5V7z"/></svg></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. CARGA DE SCRIPTS LOCALES -->
+    <!-- Importante: Sin ./ para máxima compatibilidad en APK -->
+    <script src="jsmediatags.min.js"></script>
+    <script src="color-thief.js"></script>
+    <script src="script.js"></script>
+
+    <!-- 3. REGISTRO DE SERVICE WORKER -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch(err => console.log('SW Error:', err));
+        }
+    </script>
+
+</body>
+</html>
+
+
